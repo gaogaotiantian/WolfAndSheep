@@ -36,8 +36,8 @@ class GameObject:
             self.y -= WORLD_HEIGHT
 
     def rest(self):
-        self.state = "rest"
-        self.target = None
+        self.state = "walk"
+        self.target = Point()
 
     def update(self, deltat):
         if self.mateFreeze > 0:
@@ -75,22 +75,10 @@ class GameObject:
                         self.rest()
 
             if self.state == "walk":
-                if self.energy < self.restThreshold:
-                    self.rest()
-                else:
-                    cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
-                    if self.energy > cost:
-                        self.moveToward(self.target, deltat * self.walkSpeed)
-                        self.energy -= cost
-                        if self.getDistance(self.target) < 1:
-                            self.rest()
-                    else:
-                        self.rest()
-
-            if self.state == "rest":
                 self.energy = min(100, self.energy + self.food * deltat * FOOD_TO_ENERGY_FACTOR)
-                if self.energy > self.walkThreshold:
-                    self.state = "walk"
+                if self.getDistance(self.target) > 1:
+                    self.moveToward(self.target, deltat * self.walkSpeed)
+                else:
                     self.target = Point()
 
         if isinstance(self, Wolf):
@@ -119,22 +107,20 @@ class Wolf(GameObject):
         self.weight = 40
         self.energy = 100
         self.food   = 100
-        self.mateRate = 0.4
+        self.mateRate = 0.35
         self.mateGap = 2
         self.alertRange = 75
         self.quitRange = 125
-        self.walkThreshold = 50
-        self.restThreshold = 20
         self.eatThreshold = 70
-        self.eatWolfThreshold = 20
+        self.eatWolfThreshold = 30
         self.life = 60
 
         self.x = random.randrange(0, WORLD_WIDTH)
         self.y = random.randrange(0, WORLD_HEIGHT)
-        self.state = "rest"
-        self.target = None
+        self.state = "walk"
+        self.target = Point()
         self.freeze = 0
-        self.mateFreeze = 1.5
+        self.mateFreeze = 2
         self.dead = False
 
         for kw, val in kwargs.items():
@@ -188,15 +174,13 @@ class Wolf(GameObject):
 
 class Sheep(GameObject):
     def __init__(self, **kwargs):
-        self.walkSpeed = 30
+        self.walkSpeed = 40
         self.runSpeed = 60
         self.weight = 40
         self.mateRate = 0.4
         self.mateGap = 1.5
         self.alertRange = 50
         self.safeRange = 80
-        self.walkThreshold = 50
-        self.restThreshold = 20
         self.life = 40
         self.eatTime = 1
 
@@ -204,8 +188,8 @@ class Sheep(GameObject):
         self.y = random.randrange(0, WORLD_HEIGHT)
         self.energy = 100
         self.food   = 100
-        self.state = "rest"
-        self.target = None
+        self.state = "walk"
+        self.target = Point()
         self.freeze = 0
         self.mateFreeze = 1.5
         self.dead = False
@@ -251,6 +235,8 @@ class World:
         self.tileHeight = 20
         self.tileWidthNum = int(self.width / self.tileWidth)
         self.tileHeightNum = int(self.height / self.tileHeight)
+        self.wolfData = ""
+        self.sheepData = ""
 
     def start(self):
         for i in range(15):
@@ -316,12 +302,15 @@ class World:
         for s in self.sheep:
             for obj in self.maxDistObjs(s, s.alertRange):
                 dist = s.getDistance(obj)
-                if isinstance(obj, Wolf) and dist < s.alertRange:
-                    s.avoid(obj)
+                if isinstance(obj, Wolf):
+                    if s.state == "runaway" and dist < s.getDistance(s.target):
+                        s.avoid(obj)
+                    elif s.state == "walk" and dist < s.alertRange:
+                        s.avoid(obj)
 
         for w1 in self.wolves:
             for w2 in self.maxDistObjs(w1, 30):
-                if isinstance(w2, Wolf) and w1 != w2 and w1.getDistance(w2) < 30:
+                if isinstance(w2, Wolf) and w1 != w2 and w1.getDistance(w2) < 30 and w1.food > 70 and w2.food > 70:
                     child = w1.mate(w2)
                     if child:
                         self.newWolfNum += 1
@@ -367,8 +356,8 @@ class World:
         for feature in avrSheepData:
             avrSheepData[feature] /= len(self.sheep)
 
-        print(avrWolfData)
-        print(avrSheepData)
+        self.wolfData = "Wolf ({newWolfNum}) | Walk Speed:{walkSpeed:.2f}, Run Speed: {runSpeed:.2f}, Weight: {weight:.2f}, Alert Range: {alertRange:.2f}, Quit Range: {quitRange:.2f}".format(newWolfNum=self.newWolfNum, **avrWolfData)
+        self.sheepData = "Sheep ({newSheepNum}) | Walk Speed:{walkSpeed:.2f}, Run Speed: {runSpeed:.2f}, Weight: {weight:.2f}, Alert Range: {alertRange:.2f}, Safe Range: {safeRange:.2f}".format(newSheepNum=self.newSheepNum, **avrSheepData)
 
         self.wolves = newWolfs
         self.sheep = newSheep
@@ -376,6 +365,9 @@ class World:
 class Frame:
     def __init__(self, height = WORLD_HEIGHT, width = WORLD_WIDTH):
         self.root = Tk()
+        self.strvar = StringVar()
+        self.label = Label(self.root, textvariable=self.strvar)
+        self.label.pack()
         self.canvas = Canvas(self.root, width = width, height = height)
         self.canvas.pack()
         self.game = World()
@@ -395,6 +387,7 @@ class Frame:
         self.root.after(5, self.refresh)
 
     def drawGame(self):
+        self.strvar.set(self.game.wolfData + "\n" + self.game.sheepData)
         for w in self.game.wolves:
             self.canvas.create_rectangle(w.x-5, w.y-5, w.x+5, w.y+5, fill="#{:02x}0000".format(int(w.food/100*255)))
         for s in self.game.sheep:
