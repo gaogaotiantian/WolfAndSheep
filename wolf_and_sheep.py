@@ -2,6 +2,7 @@ from tkinter import *
 import math
 import random
 import time
+import matplotlib.pyplot as plt
 
 WORLD_WIDTH = 960
 WORLD_HEIGHT = 640
@@ -14,10 +15,14 @@ class GameObject:
         return ((self.x - other.x)**2 + (self.y - other.y)**2)**0.5
 
     def moveToward(self, other, distance):
-        angle = math.atan2(other.y-self.y, other.x-self.x)
-        self.x += distance * math.cos(angle) * distance
-        self.y += distance * math.sin(angle) * distance
-        self.checkBoundary()
+        if self.getDistance(other) <= distance:
+            self.x = other.x
+            self.y = other.y
+        else:
+            angle = math.atan2(other.y-self.y, other.x-self.x)
+            self.x += distance * math.cos(angle) * distance
+            self.y += distance * math.sin(angle) * distance
+            self.checkBoundary()
 
     def moveAway(self, other, distance):
         angle = math.atan2(other.y-self.y, other.x-self.x)
@@ -58,7 +63,7 @@ class GameObject:
                 else:
                     cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
                     if self.energy > cost:
-                        self.moveToward(self.target, deltat * self.runSpeed)
+                        self.moveToward(self.target, deltat * self.runSpeed * (0.5+self.food/200))
                         self.energy -= cost
                     else:
                         self.rest()
@@ -69,7 +74,7 @@ class GameObject:
                 else:
                     cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
                     if self.energy > cost and self.target and not self.target.dead:
-                        self.moveAway(self.target, deltat * self.runSpeed)
+                        self.moveAway(self.target, deltat * self.runSpeed * (0.5+self.food/200))
                         self.energy -= cost
                     else:
                         self.rest()
@@ -77,7 +82,7 @@ class GameObject:
             if self.state == "walk":
                 self.energy = min(100, self.energy + self.food * deltat * FOOD_TO_ENERGY_FACTOR)
                 if self.getDistance(self.target) > 1:
-                    self.moveToward(self.target, deltat * self.walkSpeed)
+                    self.moveToward(self.target, deltat * self.walkSpeed * (0.5+self.food/200))
                 else:
                     self.target = Point()
 
@@ -111,7 +116,7 @@ class Wolf(GameObject):
         self.mateGap = 2
         self.alertRange = 75
         self.quitRange = 125
-        self.eatThreshold = 70
+        self.eatThreshold = 65
         self.eatWolfThreshold = 30
         self.life = 60
 
@@ -137,11 +142,9 @@ class Wolf(GameObject):
             if self.food >= wolf.food:
                 wolf.dead = True
                 self.food = min(self.food + wolf.food, 100)
-                self.freeze = 1
             else:
                 self.dead = True
                 wolf.food = min(wolf.food + self.food, 100)
-                wolf.freeze = 1
 
     def chase(self, sheep):
         if self.state != "run":
@@ -226,6 +229,7 @@ class World:
         self.width = 960
         self.height = 640
         self.framePerSec = 60
+        self.currFrame = 0
         
         self.wolves = []
         self.sheep  = []
@@ -237,11 +241,13 @@ class World:
         self.tileHeightNum = int(self.height / self.tileHeight)
         self.wolfData = ""
         self.sheepData = ""
+        self.wolfNum = []
+        self.sheepNum = []
 
     def start(self):
-        for i in range(15):
+        for i in range(30):
             self.wolves.append(Wolf())
-        for i in range(60):
+        for i in range(150):
             self.sheep.append(Sheep())
 
     def posToTileId(self, x, y):
@@ -279,6 +285,7 @@ class World:
 
 
     def refresh(self):
+        self.currFrame += 1
         newWolfs = []
         newSheep = []
         self.putInTiles()
@@ -292,7 +299,7 @@ class World:
                         else:
                             if dist < w.alertRange:
                                 w.chase(obj)
-                    elif isinstance(obj, Wolf) and w != obj and obj.food < w.eatWolfThreshold and w.food > obj.food:
+                    elif isinstance(obj, Wolf) and w != obj and obj.food < obj.eatWolfThreshold and w.food > obj.food:
                         dist = w.getDistance(obj)
                         if dist < 5:
                             w.fight(obj)
@@ -362,6 +369,10 @@ class World:
         self.wolves = newWolfs
         self.sheep = newSheep
 
+        if self.currFrame % 60 == 0:
+            self.wolfNum.append(len(self.wolves))
+            self.sheepNum.append(len(self.sheep))
+
 class Frame:
     def __init__(self, height = WORLD_HEIGHT, width = WORLD_WIDTH):
         self.root = Tk()
@@ -370,6 +381,8 @@ class Frame:
         self.label.pack()
         self.canvas = Canvas(self.root, width = width, height = height)
         self.canvas.pack()
+        self.button = Button(self.root, text="Show Figure", command=self.drawFigure)
+        self.button.pack()
         self.game = World()
 
     def start(self):
@@ -392,6 +405,17 @@ class Frame:
             self.canvas.create_rectangle(w.x-5, w.y-5, w.x+5, w.y+5, fill="#{:02x}0000".format(int(w.food/100*255)))
         for s in self.game.sheep:
             self.canvas.create_rectangle(s.x-5, s.y-5, s.x+5, s.y+5, fill="#00{:02X}00".format(int(s.food/100*255)))
+
+    def drawFigure(self):
+        fig, ax1 = plt.subplots()
+        t = range(len(self.game.wolfNum))
+        ax1.plot(t, self.game.wolfNum, 'r')
+        ax1.set_ylabel("Wolf", color='r')
+        ax2 = ax1.twinx()
+        ax2.plot(t, self.game.sheepNum, 'g')
+        ax2.set_ylabel("Sheep", color='g')
+        plt.show()
+
 
 if __name__ == '__main__':
     f = Frame()
