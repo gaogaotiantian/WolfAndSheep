@@ -1,3 +1,67 @@
+"""
+    Author: Tian Gao
+
+    This is a simplified eco-system simulator, which was designed to be a 
+    practice project for UCSB CS students. 
+
+    In the simulator, we are trying to simulate individual behaviour of Wolf 
+    and Sheep to reflect the group trend, which should in theory conform to
+    a derivative relationship. 
+
+    Ground rules for the simulator:
+    
+    1. Wolf and Sheep has finite life. 
+    2. Wolf needs to eat Sheep to keep alive.
+    3. Mate requires two individuals.
+    4. Mate and Eat requires close enough distance.
+
+    How to teach this project:
+
+    1. python -m tkinter to make sure tkinter exists
+        - Use python3
+        - apt install python3-tk
+        - brew install tcl-tk
+    2. Draw some rectangles on canvas, understand how to create widgets 
+   *3. Understand the animation process. 
+        - design a drawGame function
+        - run refresh 
+            - update the game
+            - draw the game
+        - root.after(5, refresh)
+    4. Big picture of the game. We need two classes, Wolf and Sheep. They should
+       both inherit from a base class GameObject
+        - They should have speed(two kinds?)
+        - They should have target
+        - They should have life 
+        - They should be able to be hungry and die
+        - They should mate
+        - Wolf should chase sheep and sheep should run
+        - GameObject:
+            - update(deltat)
+        - Wolf: 
+            - eat()
+            - chase()
+            - mate()
+        - Sheep:
+            - avoid()
+            - mate()
+        - World:
+            - refresh()
+        - Keep the same naming style. Choose camelCase or underscore_name
+        - No magic numbers in any functions except for __init__()
+    5. How to progress in game
+        - World.refresh() -> Check wolves and sheep, finish all instantaneous
+          actions
+        - deltat based system, update all objects for a period of time
+        - draw the game
+    6. Optimization
+        - Put the objects in tiles to reduce O(N^2) time
+    7. Visualization
+        - Use matplotlib to show the result
+    8. Expansion
+        - Random attributes based on parents, observe the attributes trend
+        
+"""
 from tkinter import *
 import math
 import random
@@ -11,6 +75,15 @@ FOOD_TO_ENERGY_FACTOR = 0.05
 FOOD_COST_SPEED = 20
 
 class GameObject:
+    def __init__(self):
+        self.x = random.randrange(0, WORLD_WIDTH)
+        self.y = random.randrange(0, WORLD_HEIGHT)
+        self.state = "walk"
+        self.target = Point()
+        self.dead = False
+        self.energy = 100
+        self.food   = 100
+
     def getDistance(self, other):
         return ((self.x - other.x)**2 + (self.y - other.y)**2)**0.5
 
@@ -53,38 +126,34 @@ class GameObject:
             self.dead = True
             return
 
-        if self.freeze > 0:
-            self.freeze -= deltat
+        if self.state == "run":
+            if not self.target or self.target.dead or self.getDistance(self.target) > self.quitRange or self.getDistance(self.target) < 1:
+                self.rest()
+            else:
+                cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
+                if self.energy > cost:
+                    self.moveToward(self.target, deltat * self.runSpeed * (0.5+self.food/200))
+                    self.energy -= cost
+                else:
+                    self.rest()
+
+        elif self.state == "runaway":
+            if not self.target or self.target.dead or self.getDistance(self.target) > self.safeRange:
+                self.rest()
+            else:
+                cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
+                if self.energy > cost and self.target and not self.target.dead:
+                    self.moveAway(self.target, deltat * self.runSpeed * (0.5+self.food/200))
+                    self.energy -= cost
+                else:
+                    self.rest()
+
+        elif self.state == "walk":
             self.energy = min(100, self.energy + self.food * deltat * FOOD_TO_ENERGY_FACTOR)
-        else:
-            if self.state == "run":
-                if not self.target or self.target.dead or self.getDistance(self.target) > self.quitRange or self.getDistance(self.target) < 1:
-                    self.rest()
-                else:
-                    cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
-                    if self.energy > cost:
-                        self.moveToward(self.target, deltat * self.runSpeed * (0.5+self.food/200))
-                        self.energy -= cost
-                    else:
-                        self.rest()
-
-            if self.state == "runaway":
-                if not self.target or self.target.dead or self.getDistance(self.target) > self.safeRange:
-                    self.rest()
-                else:
-                    cost = self.weight * self.runSpeed * deltat * ENERGY_FACTOR
-                    if self.energy > cost and self.target and not self.target.dead:
-                        self.moveAway(self.target, deltat * self.runSpeed * (0.5+self.food/200))
-                        self.energy -= cost
-                    else:
-                        self.rest()
-
-            if self.state == "walk":
-                self.energy = min(100, self.energy + self.food * deltat * FOOD_TO_ENERGY_FACTOR)
-                if self.getDistance(self.target) > 1:
-                    self.moveToward(self.target, deltat * self.walkSpeed * (0.5+self.food/200))
-                else:
-                    self.target = Point()
+            if self.getDistance(self.target) > 1:
+                self.moveToward(self.target, deltat * self.walkSpeed * (0.5+self.food/200))
+            else:
+                self.target = Point()
 
         if isinstance(self, Wolf):
             self.food -= FOOD_COST_SPEED * deltat
@@ -107,11 +176,10 @@ class Point(GameObject):
 
 class Wolf(GameObject):
     def __init__(self, **kwargs):
+        super().__init__()
         self.walkSpeed = 40
         self.runSpeed = 100
         self.weight = 40
-        self.energy = 100
-        self.food   = 100
         self.mateRate = 0.35
         self.mateGap = 2
         self.alertRange = 75
@@ -119,14 +187,7 @@ class Wolf(GameObject):
         self.eatThreshold = 65
         self.eatWolfThreshold = 30
         self.life = 60
-
-        self.x = random.randrange(0, WORLD_WIDTH)
-        self.y = random.randrange(0, WORLD_HEIGHT)
-        self.state = "walk"
-        self.target = Point()
-        self.freeze = 0
         self.mateFreeze = 2
-        self.dead = False
 
         for kw, val in kwargs.items():
             if hasattr(self, kw):
@@ -177,6 +238,7 @@ class Wolf(GameObject):
 
 class Sheep(GameObject):
     def __init__(self, **kwargs):
+        super().__init__()
         self.walkSpeed = 40
         self.runSpeed = 60
         self.weight = 40
@@ -186,16 +248,7 @@ class Sheep(GameObject):
         self.safeRange = 80
         self.life = 40
         self.eatTime = 1
-
-        self.x = random.randrange(0, WORLD_WIDTH)
-        self.y = random.randrange(0, WORLD_HEIGHT)
-        self.energy = 100
-        self.food   = 100
-        self.state = "walk"
-        self.target = Point()
-        self.freeze = 0
         self.mateFreeze = 1.5
-        self.dead = False
         self.neighbor = 0
 
         for kw, val in kwargs.items():
@@ -391,15 +444,12 @@ class Frame:
         self.root.mainloop()
 
     def refresh(self):
-        t1 = time.time()
         self.game.refresh()
-        t2 = time.time()
-        self.canvas.delete('all')
         self.drawGame()
-        t3 = time.time()
         self.root.after(5, self.refresh)
 
     def drawGame(self):
+        self.canvas.delete('all')
         self.strvar.set(self.game.wolfData + "\n" + self.game.sheepData)
         for w in self.game.wolves:
             self.canvas.create_rectangle(w.x-5, w.y-5, w.x+5, w.y+5, fill="#{:02x}0000".format(int(w.food/100*255)))
